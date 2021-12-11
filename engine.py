@@ -32,9 +32,11 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         outputs = model(samples)
         loss_dict = criterion(outputs, targets)
         weight_dict = criterion.weight_dict
+        # 加权后的多任务损失，用于更新模型参数
         losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
 
         # reduce losses over all GPUs for logging purposes
+        # 以下损失只起到记录的作用，不参与更新
         loss_dict_reduced = utils.reduce_dict(loss_dict)
         loss_dict_reduced_unscaled = {f'{k}_unscaled': v
                                       for k, v in loss_dict_reduced.items()}
@@ -51,6 +53,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
         optimizer.zero_grad()
         losses.backward()
+        # 梯度裁剪
         if max_norm > 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
         optimizer.step()
