@@ -222,7 +222,9 @@ class MetricLogger(object):
         MB = 1024.0 * 1024.0
         for obj in iterable:
             data_time.update(time.time() - end)
+            # iterable 为生成器，用于将 batch 的数据取出，循环会暂停在此处
             yield obj
+            # 待模型训练完一次迭代后再执行剩下内容，进行各项统计，然后再 yeild 下一个 batch 的数据，暂停在那里，以此重复，直至所有 batch 都训练完
             iter_time.update(time.time() - end)
             if i % print_freq == 0 or i == len(iterable) - 1:
                 eta_seconds = iter_time.global_avg * (len(iterable) - i)
@@ -279,6 +281,10 @@ def collate_fn(batch):
 
 def _max_by_axis(the_list):
     # type: (List[List[int]]) -> List[int]
+    ''' 
+    param: the_list 形如 [[fig1_c, fig_1_w, fig_1_h], [fig2_c, fig_2_w, fig_2_h], .... ]
+    func: 取得 the_list 里的元素 sublist 在各个位置的最大值 maxes
+    '''
     maxes = the_list[0]
     for sublist in the_list[1:]:
         for index, item in enumerate(sublist):
@@ -326,8 +332,10 @@ def nested_tensor_from_tensor_list(tensor_list: List[Tensor]):
         device = tensor_list[0].device
         tensor = torch.zeros(batch_shape, dtype=dtype, device=device)
         mask = torch.ones((b, h, w), dtype=torch.bool, device=device)
+        # shape: (b, [通道、长宽不一的原始图像]), (b, c, h, w), (b, h, w) 
         for img, pad_img, m in zip(tensor_list, tensor, mask):
             pad_img[: img.shape[0], : img.shape[1], : img.shape[2]].copy_(img)
+            # 原始图像 img 中有效的部分被设为 False, 被 padding 为 0 的部分为 True
             m[: img.shape[1], :img.shape[2]] = False
     else:
         raise ValueError('not supported')
