@@ -60,13 +60,25 @@ class BackboneBase(nn.Module):
     def __init__(self, backbone: nn.Module, train_backbone: bool, num_channels: int, return_interm_layers: bool):
         super().__init__()
         for name, parameter in backbone.named_parameters():
+            # train 的话更新 layer2, 3, 4 否则全不更新
             if not train_backbone or 'layer2' not in name and 'layer3' not in name and 'layer4' not in name:
                 parameter.requires_grad_(False)
+        # 是否返回中间层
         if return_interm_layers:
             return_layers = {"layer1": "0", "layer2": "1", "layer3": "2", "layer4": "3"}
         else:
             return_layers = {'layer4': "0"}
         self.body = IntermediateLayerGetter(backbone, return_layers=return_layers)
+        '''
+        IntermediateLayerGetter Examples:
+        >>> m = torchvision.models.resnet18(pretrained=True)
+        >>> # extract layer1 and layer3, giving as names `feat1` and feat2`
+        >>> new_m = torchvision.models._utils.IntermediateLayerGetter(m, {'layer1': 'feat1', 'layer3': 'feat2'})
+        >>> out = new_m(torch.rand(1, 3, 224, 224))
+        >>> print([(k, v.shape) for k, v in out.items()])
+        >>> [('feat1', torch.Size([1, 64, 56, 56])),
+        >>> ('feat2', torch.Size([1, 256, 14, 14]))]
+        '''
         self.num_channels = num_channels
 
     def forward(self, tensor_list: NestedTensor):
@@ -75,8 +87,10 @@ class BackboneBase(nn.Module):
         for name, x in xs.items():
             m = tensor_list.mask
             assert m is not None
+            # 将 mask 插值到与特征图大小一致
             mask = F.interpolate(m[None].float(), size=x.shape[-2:]).to(torch.bool)[0]
             out[name] = NestedTensor(x, mask)
+        # out 形如: out={'0': f1, '1': f2, '2': f3, '3': f4}，f1, 2, 3, 4 为 NestedTensor
         return out
 
 
@@ -86,6 +100,8 @@ class Backbone(BackboneBase):
                  train_backbone: bool,
                  return_interm_layers: bool,
                  dilation: bool):
+        # getattr 函数用于返回一个对象属性值
+        # FrozenBatchNorm2d: 将统计量（均值与方差）和可学习的仿射参数固定住
         backbone = getattr(torchvision.models, name)(
             replace_stride_with_dilation=[False, False, dilation],
             pretrained=is_main_process(), norm_layer=FrozenBatchNorm2d)
@@ -110,7 +126,11 @@ class Joiner(nn.Sequential):
 
 
 def build_backbone(args):
+    '''
+    func: 分别建立 backbone 与position_embeding 并将其合并在一起
+    '''
     position_embedding = build_position_encoding(args)
+    # 是否训练 backbone，是否返回中间层
     train_backbone = args.lr_backbone > 0
     return_interm_layers = args.masks
     backbone = Backbone(args.backbone, train_backbone, return_interm_layers, args.dilation)
