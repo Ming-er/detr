@@ -108,7 +108,7 @@ class Backbone(BackboneBase):
         num_channels = 512 if name in ('resnet18', 'resnet34') else 2048
         super().__init__(backbone, train_backbone, num_channels, return_interm_layers)
 
-
+# 将 backbone 和 position encoding 集成
 class Joiner(nn.Sequential):
     def __init__(self, backbone, position_embedding):
         super().__init__(backbone, position_embedding)
@@ -121,7 +121,7 @@ class Joiner(nn.Sequential):
             out.append(x)
             # position encoding
             pos.append(self[1](x).to(x.tensors.dtype))
-
+        # 对 backbone 的每层输出都进行位置编码，最终返回 backbone 的输出 out 及对应的位置编码结果 
         return out, pos
 
 
