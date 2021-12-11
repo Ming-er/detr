@@ -267,6 +267,11 @@ def get_sha():
 
 
 def collate_fn(batch):
+    ''' 
+    func: 将一个 batch 的数据重新组装为自定义的形式;
+    comment: 通常在 Pytorch 中的 Dataloader 中，会将一个 batch 的数据组装为((data1, label1), (data2, label2), ...)的形式， zip 将其变为[(data1, data2, data3, ...), (label1, label2, label3, ...)]，
+    然后取 batch 内的图像 (batch[0]) 输入到 nested_tensor_from_tensor_list() 方法中进行处理，最后将返回结果替代原始的 batch 图像数据
+    '''
     batch = list(zip(*batch))
     batch[0] = nested_tensor_from_tensor_list(batch[0])
     return tuple(batch)
