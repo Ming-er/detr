@@ -60,7 +60,7 @@ class Transformer(nn.Module):
 
 
 class TransformerEncoder(nn.Module):
-
+    # 堆叠 N 次 Encoder 
     def __init__(self, encoder_layer, num_layers, norm=None):
         super().__init__()
         self.layers = _get_clones(encoder_layer, num_layers)
@@ -71,6 +71,11 @@ class TransformerEncoder(nn.Module):
                 mask: Optional[Tensor] = None,
                 src_key_padding_mask: Optional[Tensor] = None,
                 pos: Optional[Tensor] = None):
+      '''
+      param src: Backbone 最后一层输出的特征图，通道维度映射到了 hidden_dim (也是 Transformer 输入的通道数目)，shape (h * w, bs, hidden_dim)
+      param pos: Backbone 最后一层应该加入的位置编码，shape (h * w, bs, c)
+      param src_key_padding_mask: Backbone 最后一层的 padding mask，shape (h * w, bs)
+      '''
         output = src
 
         for layer in self.layers:
@@ -146,6 +151,9 @@ class TransformerEncoderLayer(nn.Module):
     def with_pos_embed(self, tensor, pos: Optional[Tensor]):
         return tensor if pos is None else tensor + pos
 
+    # forward_post 与 forward_pre 的区别在于 normalization 的位置不同，此外，只对 q, k 进行位置
+    # pre: norm -> pos_emb -> attn -> drop & add -> norm -> FFN -> drop & add
+    # post: pos_emb -> attn -> drop & add -> norm -> FFN -> drop & add -> norm 
     def forward_post(self,
                      src,
                      src_mask: Optional[Tensor] = None,
@@ -216,6 +224,7 @@ class TransformerDecoderLayer(nn.Module):
                      memory_key_padding_mask: Optional[Tensor] = None,
                      pos: Optional[Tensor] = None,
                      query_pos: Optional[Tensor] = None):
+        
         q = k = self.with_pos_embed(tgt, query_pos)
         tgt2 = self.self_attn(q, k, value=tgt, attn_mask=tgt_mask,
                               key_padding_mask=tgt_key_padding_mask)[0]
@@ -269,6 +278,7 @@ class TransformerDecoderLayer(nn.Module):
                                  tgt_key_padding_mask, memory_key_padding_mask, pos, query_pos)
 
 
+# 将一个 nn.Module 克隆 n 次放在 nn.ModuleList 里
 def _get_clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
 
@@ -287,7 +297,9 @@ def build_transformer(args):
 
 
 def _get_activation_fn(activation):
-    """Return an activation function given a string"""
+    '''
+    func: Return an activation function given a string
+    '''
     if activation == "relu":
         return F.relu
     if activation == "gelu":
