@@ -45,13 +45,17 @@ class Transformer(nn.Module):
                 nn.init.xavier_uniform_(p)
 
     def forward(self, src, mask, query_embed, pos_embed):
-        # flatten NxCxHxW to HWxNxC
         bs, c, h, w = src.shape
+        # (bs, c, h, w) to (hw, bs, c)
         src = src.flatten(2).permute(2, 0, 1)
+        # (hw, bs, c = hidden_dim)
         pos_embed = pos_embed.flatten(2).permute(2, 0, 1)
+        # query_embed 即 decoder 输入的位置编码，(num_queries, bs,  c = hidden_dim)，也称 object_queries
         query_embed = query_embed.unsqueeze(1).repeat(1, bs, 1)
+        # (bs,  hw)
         mask = mask.flatten(1)
-
+        
+        # tgt 即 query object 预测的目标，需要与预测目标的相对编码query_embed 相加，但是由于开始时网络没有预测输出，于是将其粗暴地初始化为0 (num_queries, bs,  c = hidden_dim)
         tgt = torch.zeros_like(query_embed)
         memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)
         hs = self.decoder(tgt, memory, memory_key_padding_mask=mask,
@@ -197,7 +201,9 @@ class TransformerDecoderLayer(nn.Module):
     def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1,
                  activation="relu", normalize_before=False):
         super().__init__()
+        # self_attention layer 
         self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
+        # encoder_decoder layer 
         self.multihead_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
         # Implementation of Feedforward model
         self.linear1 = nn.Linear(d_model, dim_feedforward)
@@ -224,7 +230,16 @@ class TransformerDecoderLayer(nn.Module):
                      memory_key_padding_mask: Optional[Tensor] = None,
                      pos: Optional[Tensor] = None,
                      query_pos: Optional[Tensor] = None):
-        
+        '''
+        param tgt: decoder 的输入
+        param query_pos: tgt 的位置编码, object queries (num_queries, bs, hidden_dim) 相当于一个位置编码
+        param memory: encoder 的输出特征图 (hw, bs, hidden_dim = c)
+        param pos: memory 的位置编码
+        param tgt_mask, memory_mask: None
+        comment: 
+        自注意力层计算的相关性是目标物体与图像特征各位置的相关性，然后 Encoder-Decoder 注意力层再把这个相关性系数加权到 Encoder 编码后的图像特征 memory 上，
+        相当于获得了 object features，更好地表征了图像中的各个物体
+        '''
         q = k = self.with_pos_embed(tgt, query_pos)
         tgt2 = self.self_attn(q, k, value=tgt, attn_mask=tgt_mask,
                               key_padding_mask=tgt_key_padding_mask)[0]
