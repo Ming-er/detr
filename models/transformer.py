@@ -55,7 +55,8 @@ class Transformer(nn.Module):
         # (bs,  hw)
         mask = mask.flatten(1)
         
-        # tgt 即 query object 预测的目标，需要与预测目标的相对编码query_embed 相加，但是由于开始时网络没有预测输出，于是将其粗暴地初始化为0 (num_queries, bs,  c = hidden_dim)
+        # tgt 即 query object 预测的目标，需要与预测目标的相对编码query_embed 相加，但是由于开始时网络没有预测输出，于是将其粗暴地初始化为0 (num_queries, bs,  c = hidden_dim)，注意
+        # 这样写的话，每次一个新的 batch 到来的时候都会初始化其为 0
         tgt = torch.zeros_like(query_embed)
         memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)
         hs = self.decoder(tgt, memory, memory_key_padding_mask=mask,
@@ -231,8 +232,8 @@ class TransformerDecoderLayer(nn.Module):
                      pos: Optional[Tensor] = None,
                      query_pos: Optional[Tensor] = None):
         '''
-        param tgt: decoder 的输入
-        param query_pos: tgt 的位置编码, object queries (num_queries, bs, hidden_dim) 相当于一个位置编码
+        param tgt: decoder 的输入，初始化需要预测的目标，一开始不清楚这些目标，所以初始化为 0，但在 Decoder 的各层不断被 refine，相当于一个 coarse-to-fine 的过程
+        param query_pos: tgt 的位置编码, object queries (num_queries, bs, hidden_dim) 相当于一个位置编码，真正要学习的东西
         param memory: encoder 的输出特征图 (hw, bs, hidden_dim = c)
         param pos: memory 的位置编码
         param tgt_mask, memory_mask: None
