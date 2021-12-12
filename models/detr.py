@@ -97,13 +97,19 @@ class SetCriterion(nn.Module):
             losses: list of all the losses to be applied. See get_loss for list of available losses.
         """
         super().__init__()
+        # 类别数目(不包含背景)
         self.num_classes = num_classes
+        # 匈牙利算法
         self.matcher = matcher
+        # 损失权重
         self.weight_dict = weight_dict
+        # 背景权重(非目标物体)
         self.eos_coef = eos_coef
+        # 指定需要计算哪些 loss
         self.losses = losses
         empty_weight = torch.ones(self.num_classes + 1)
         empty_weight[-1] = self.eos_coef
+        # https://pytorch.org/docs/stable/generated/torch.nn.Module.html?highlight=register_buffer#torch.nn.Module.register_buffer
         self.register_buffer('empty_weight', empty_weight)
 
     def loss_labels(self, outputs, targets, indices, num_boxes, log=True):
@@ -129,8 +135,10 @@ class SetCriterion(nn.Module):
 
     @torch.no_grad()
     def loss_cardinality(self, outputs, targets, indices, num_boxes):
-        """ Compute the cardinality error, ie the absolute error in the number of predicted non-empty boxes
+        """ 
+        Compute the cardinality error, ie the absolute error in the number of predicted non-empty boxes
         This is not really a loss, it is intended for logging purposes only. It doesn't propagate gradients
+        只是用来 log, 不会反向传播更新模型参数
         """
         pred_logits = outputs['pred_logits']
         device = pred_logits.device
@@ -204,6 +212,7 @@ class SetCriterion(nn.Module):
         return batch_idx, tgt_idx
 
     def get_loss(self, loss, outputs, targets, indices, num_boxes, **kwargs):
+        # 完成 loss_type: String -> loss_func: Function 的映射 
         loss_map = {
             'labels': self.loss_labels,
             'cardinality': self.loss_cardinality,
@@ -217,12 +226,18 @@ class SetCriterion(nn.Module):
         """ This performs the loss computation.
         Parameters:
              outputs: dict of tensors, see the output specification of the model for the format
+             {'pred_logits': (bs, num_queries = 100, num_classes),
+             'pred_box': {bs, numqueries = 100, 4},
+             'aux_outputs':xxx}
              targets: list of dicts, such that len(targets) == batch_size.
                       The expected keys in each dict depends on the losses applied, see each loss' doc
         """
+        # 去掉中间过程输出，只保留预测结果
         outputs_without_aux = {k: v for k, v in outputs.items() if k != 'aux_outputs'}
 
         # Retrieve the matching between the outputs of the last layer and the targets
+        # indices List(tuple) 形如[(index_i1, index_j1), (index_i2, index_j2), ....] 每一个(index_i, index_j) 对是一对匹配的索引, 前者是 pred, 后者是 ground truth
+        # len(List) = min(num_queries = 100, 图像真实存在的物体数目)？
         indices = self.matcher(outputs_without_aux, targets)
 
         # Compute the average number of target boxes accross all nodes, for normalization purposes
@@ -235,6 +250,7 @@ class SetCriterion(nn.Module):
         # Compute all the requested losses
         losses = {}
         for loss in self.losses:
+            # 计算特定类型的 loss  
             losses.update(self.get_loss(loss, outputs, targets, indices, num_boxes))
 
         # In case of auxiliary losses, we repeat this process with the output of each intermediate layer.
@@ -331,9 +347,12 @@ def build(args):
     )
     if args.masks:
         model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))
+    # 匈牙利算法
     matcher = build_matcher(args)
+    # 各部分损失的权重
     weight_dict = {'loss_ce': 1, 'loss_bbox': args.bbox_loss_coef}
     weight_dict['loss_giou'] = args.giou_loss_coef
+    # 分割任务
     if args.masks:
         weight_dict["loss_mask"] = args.mask_loss_coef
         weight_dict["loss_dice"] = args.dice_loss_coef
