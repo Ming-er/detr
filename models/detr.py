@@ -201,6 +201,8 @@ class SetCriterion(nn.Module):
 
     def _get_src_permutation_idx(self, indices):
         # permute predictions following indices
+        # return batch_idx: 在当前 batch 中属于第几张图像
+        # return src_idx: 图像中的第几个 query
         batch_idx = torch.cat([torch.full_like(src, i) for i, (src, _) in enumerate(indices)])
         src_idx = torch.cat([src for (src, _) in indices])
         return batch_idx, src_idx
@@ -236,8 +238,14 @@ class SetCriterion(nn.Module):
         outputs_without_aux = {k: v for k, v in outputs.items() if k != 'aux_outputs'}
 
         # Retrieve the matching between the outputs of the last layer and the targets
-        # indices List(tuple) 形如[(index_i1, index_j1), (index_i2, index_j2), ....] 每一个(index_i, index_j) 对是一对匹配的索引, 前者是 pred, 后者是 ground truth
-        # len(List) = min(num_queries = 100, 图像真实存在的物体数目)？
+        '''
+        indices:
+        A list of size batch_size, containing tuples of (index_i, index_j) where:
+        - index_i is the indices of the selected predictions (in order)
+        - index_j is the indices of the corresponding selected targets (in order)
+        For each batch element, it holds:
+        len(index_i) = len(index_j) = min(num_queries, num_target_boxes)
+        '''
         indices = self.matcher(outputs_without_aux, targets)
 
         # Compute the average number of target boxes accross all nodes, for normalization purposes
