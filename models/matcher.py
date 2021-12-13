@@ -55,19 +55,24 @@ class HungarianMatcher(nn.Module):
         bs, num_queries = outputs["pred_logits"].shape[:2]
 
         # We flatten to compute the cost matrices in a batch
-        out_prob = outputs["pred_logits"].flatten(0, 1).softmax(-1)  # [batch_size * num_queries, num_classes]
-        out_bbox = outputs["pred_boxes"].flatten(0, 1)  # [batch_size * num_queries, 4]
+        out_prob = outputs["pred_logits"].flatten(0, 1).softmax(-1)  # [batch_size * num_queries, num_classes] = [N, num_classes]
+        out_bbox = outputs["pred_boxes"].flatten(0, 1)  # [batch_size * num_queries, 4] =  = [N, 4]
 
         # Also concat the target labels and boxes
+        # tgt_ids shape = (M,) 存储的是类别索引，M 包括了一 batch 内部的所有 target_boxes
         tgt_ids = torch.cat([v["labels"] for v in targets])
+        # tgt_ids shape = (M, 4) 存储的是对应坐标，M 包括了一 batch 内部的所有 target_boxes
         tgt_bbox = torch.cat([v["boxes"] for v in targets])
 
         # Compute the classification cost. Contrary to the loss, we don't use the NLL,
         # but approximate it in 1 - proba[target class].
         # The 1 is a constant that doesn't change the matching, it can be ommitted.
+        # cost_class shape: (bs * num_queries, M) = (N, M), 只取 tgt_ids 对应的 M 列, 只要一个 batch 里出现过的真实标签都被拿出来计算损失
         cost_class = -out_prob[:, tgt_ids]
 
         # Compute the L1 cost between boxes
+        # https://pytorch.org/docs/stable/generated/torch.cdist.html?highlight=cdist#torch.cdist
+        # 计算 out_bbox 和 tgt_bbox 两两之间的l1距离 (N, M)
         cost_bbox = torch.cdist(out_bbox, tgt_bbox, p=1)
 
         # Compute the giou cost betwen boxes
@@ -75,9 +80,13 @@ class HungarianMatcher(nn.Module):
 
         # Final cost matrix
         C = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou
+        # [batch_size * num_queries, M] ->  # [batch_size, num_queries, M]
         C = C.view(bs, num_queries, -1).cpu()
-
+        # sizes 得到一个 batch 每张图像有多少物体，后续计算时候按照单张图片进行匹配
+        # example sizes: [a, b, c]，第一张图像有 a 个目标, 第二张图像有 b 个目标, ...
         sizes = [len(v["boxes"]) for v in targets]
+        # split: https://pytorch.org/docs/stable/generated/torch.split.html#torch.split
+        # (i, c[i]) example：(0, num_queries, image1_obj_num), (1, num_queries, image2_obj_num)
         indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))]
         return [(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in indices]
 
