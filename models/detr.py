@@ -113,18 +113,24 @@ class SetCriterion(nn.Module):
         self.register_buffer('empty_weight', empty_weight)
 
     def loss_labels(self, outputs, targets, indices, num_boxes, log=True):
-        """Classification loss (NLL)
+        """
+        Classification loss (NLL)
         targets dicts must contain the key "labels" containing a tensor of dim [nb_target_boxes]
         """
         assert 'pred_logits' in outputs
+        # src_logits shape: (bs, num_queries, num_classes + 1)
         src_logits = outputs['pred_logits']
-
+        # idx (batch_idx 在当前 batch 中属于第几张图像, src_idx 图像中的第几个 query), shape 都等于一个 batch 中 match 的所有 queries 的数目
         idx = self._get_src_permutation_idx(indices)
+        # target_class_o shape: (一个 batch 中 match 的所有 queries 的数目), 描述的是一个 batch 中所有的真实标签
         target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
+        # (bs, num_queries) 初始化为背景
         target_classes = torch.full(src_logits.shape[:2], self.num_classes,
                                     dtype=torch.int64, device=src_logits.device)
+        # 假设 idx = ([a,b],[c,d]), 则取出 [target[a][c], target[b][d]]
         target_classes[idx] = target_classes_o
-
+        
+        # src_logits shape: (bs, num_class + 1, num_queries), target：(bs, num_queries), empty weight: (bs, num_class + 1)
         loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight)
         losses = {'loss_ce': loss_ce}
 
@@ -150,13 +156,17 @@ class SetCriterion(nn.Module):
         return losses
 
     def loss_boxes(self, outputs, targets, indices, num_boxes):
-        """Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU loss
-           targets dicts must contain the key "boxes" containing a tensor of dim [nb_target_boxes, 4]
-           The target boxes are expected in format (center_x, center_y, w, h), normalized by the image size.
+        """
+        Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU loss
+        targets dicts must contain the key "boxes" containing a tensor of dim [nb_target_boxes, 4]
+        The target boxes are expected in format (center_x, center_y, w, h), normalized by the image size.
         """
         assert 'pred_boxes' in outputs
+        # idx (batch_idx 在当前 batch 中属于第几张图像, src_idx 图像中的第几个 query), shape 都等于一个 batch 中 match 的所有 queries 的数目
         idx = self._get_src_permutation_idx(indices)
+        # outputs['pred_boxes'] shape: (一个 batch 中 match 的所有 queries 的数目， 4), 回归分支仅计算有目标问题的位置，因此 shape 的维度是 一个 batch 中 match 的所有 queries 的数目，而非分类分支的 num_queries
         src_boxes = outputs['pred_boxes'][idx]
+        # target_boxed shape 同上
         target_boxes = torch.cat([t['boxes'][i] for t, (_, i) in zip(targets, indices)], dim=0)
 
         loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction='none')
@@ -245,6 +255,7 @@ class SetCriterion(nn.Module):
         - index_j is the indices of the corresponding selected targets (in order)
         For each batch element, it holds:
         len(index_i) = len(index_j) = min(num_queries, num_target_boxes)
+        ((index_i1 = [a, b], index_j1 = [c, d]), (), ()...())
         '''
         indices = self.matcher(outputs_without_aux, targets)
 
